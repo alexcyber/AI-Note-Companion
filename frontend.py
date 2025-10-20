@@ -215,6 +215,8 @@ with col3:
             st.success(f"Now playing: {selected_audio['name']}")
             
             # Display audio player using the S3 URL
+            print(selected_audio['url'])
+            print(selected_audio)
             st.audio(selected_audio['url'])
             
             # Audio file info

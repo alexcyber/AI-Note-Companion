@@ -69,7 +69,10 @@ class ObjectStorage:
                         "size": obj['Size'],
                         "type": mime or "application/octet-stream",
                         "uploaded_at": obj['LastModified'].astimezone(timezone.utc).isoformat(),
-                        "url": f"https://{self.bucket_name}.s3.amazonaws.com/{key}"
+                        "url": f"https://{self.bucket_name}.s3.amazonaws.com/{key}",
+                        "uri": f"s3://{self.bucket_name}/{key}",
+                        "path": f"{key}",
+                        "bucket": f"{self.bucket_name}"
                     })
             return files
         except Exception as e:
