@@ -1,5 +1,6 @@
 import anthropic
 import json
+from generate_audio import Podcast
 
 class Chat:
     def __init__(self, api_key, tools=True):
@@ -123,10 +124,9 @@ class Chat:
 
     def process_tool_call(self, tool_name, tool_input):
         if tool_name == "generate_podcast_audio":  # Fixed tool name
-            print("YOU MADE IT")
-            print(tool_name)
-            print(tool_input)
-            #return ####CALL to GENERATE_AUDIO
+            pod = Podcast(tool_input['podcast_name'])
+            pod.create_podcast(tool_input['dialogue_json'])
+            
         else:
             return {"error": f"Unknown tool '{tool_name}'"}
 

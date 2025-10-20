@@ -2,6 +2,7 @@ import boto3
 from pydub import AudioSegment
 import os
 import load_environment
+import json
 
 
 
@@ -57,7 +58,8 @@ class Podcast(Polly):
         self.podcast_name = podcast_name
     
     def create_podcast(self, dialogue, dialogue_gap=.7):
-        
+        dialogue = json.loads(dialogue)
+
         snippet_file_paths = []
         for i, dialogue_clip in enumerate(dialogue):
             if dialogue_clip['speaker'] == "host":
@@ -67,7 +69,7 @@ class Podcast(Polly):
                 voice_id = 'Stephen'
             else:
                 raise(Exception("An unknown speaker was present in the dialogue"))
-            response_stream  = pod.synthesize_speech(dialogue_clip['text'], voice_id)
+            response_stream  = self.synthesize_speech(dialogue_clip['text'], voice_id)
             file_path = f"/tmp/{self.podcast_name}-part{i}.mp3"
             snippet_file_paths.append(file_path)
             with open(file_path, "wb") as f:
@@ -78,7 +80,8 @@ class Podcast(Polly):
         final_audio = self.stitch_audio(snippet_file_paths)
         final_audio_file_path = f"/tmp/{self.podcast_name}"
         final_audio.export(final_audio_file_path, format="mp3")
-        self.upload_to_s3(final_audio_file_path, self.podcast_s3_bucket, "podcasts", self.podcast_name)
+        url = self.upload_to_s3(final_audio_file_path, self.bucket_name, f"{self.s3_parent_path}/podcasts", self.podcast_name)
+        return url
 
 
     def stitch_audio(self, audio_file_paths, dialogue_gap = 1.5):
@@ -94,6 +97,7 @@ class Podcast(Polly):
             s3 = boto3.client('s3')
             s3.upload_file(file_path, bucket_name, object_name)
             print(f"Uploaded {file_path} to s3://{bucket_name}/{object_path}/{object_name}")
+            return f"s3://{bucket_name}/{object_path}/{object_name}"
         except Exception as e:
             print(f"Upload failed: {e}")
         
