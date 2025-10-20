@@ -1,6 +1,8 @@
 import boto3
 from pydub import AudioSegment
 import os
+import load_environment
+
 
 
 class Polly:
@@ -47,9 +49,11 @@ class Polly:
         return voices
 
 class Podcast(Polly):
-    def __init__(self, s3_bucket_arn, podcast_name):
+    def __init__(self, podcast_name):
         super().__init__()
-        self.podcast_s3_bucket = s3_bucket_arn
+        self.env = load_environment.load_env()
+        self.bucket_name = self.env['S3_BUCKET_NAME']
+        self.s3_parent_path = self.env['S3_PARENT_FOLDER']
         self.podcast_name = podcast_name
     
     def create_podcast(self, dialogue, dialogue_gap=.7):
