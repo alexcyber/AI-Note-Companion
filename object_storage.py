@@ -13,7 +13,7 @@ class ObjectStorage:
     def document_upload(self, file_obj, rel_obj_path, filename):
         try:
             # Construct the full S3 key (path + filename)
-            s3_key = f"{self.s3_parent_path}/{rel_obj_path}/{filename}" if rel_obj_path else f"{self.s3_parent_path}/{filename}"
+            s3_key = f"{self.s3_parent_path}/{rel_obj_path}/{filename}"
             
             # Upload the file
             # For Streamlit UploadedFile, we can directly use the file object
@@ -56,7 +56,6 @@ class ObjectStorage:
                 paginate_kwargs["Prefix"] = f"{self.s3_parent_path}/{rel_obj_path}"
             else:
                 paginate_kwargs["Prefix"] = f"{self.s3_parent_path}"
-            print(rel_obj_path)
             print(f"Getting objects from {paginate_kwargs["Prefix"]}")
             paginator = self.s3.get_paginator('list_objects_v2')
             for page in paginator.paginate(**paginate_kwargs):

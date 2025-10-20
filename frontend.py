@@ -2,6 +2,7 @@ import streamlit as st
 from pathlib import Path
 import time
 from object_storage import ObjectStorage
+from chat import Chat
 import load_environment
 
 env = load_environment.load_env()
@@ -19,6 +20,12 @@ if "uploaded_files" not in st.session_state:
 
 if "last_uploaded_file" not in st.session_state:
     st.session_state.last_uploaded_file = None
+
+if "chat_instance" not in st.session_state:
+    st.session_state.chat_instance = None
+
+if "api_key" not in st.session_state:
+    st.session_state.api_key = ""
 
 # Main title
 st.title("Multi-Function Dashboard")
@@ -48,7 +55,7 @@ with col1:
             with st.spinner(f"Uploading {uploaded_file.name}..."):
                 success, result = object_storage.document_upload(
                     uploaded_file,
-                    "/files",
+                    "files",
                     uploaded_file.name
                 )
         
@@ -68,7 +75,7 @@ with col1:
     # Display all uploaded files from cloud storage
     st.subheader("Your Files")
     
-    files = object_storage.get_objects("/files")
+    files = object_storage.get_objects("files")
     
     if files:
         # Create scrollable container for files
@@ -122,12 +129,19 @@ with col1:
 with col2:
     st.header("💬 Claude Chat")
     
-    # API key input (or could be stored in backend)
-    api_key = st.text_input(
+    # API key input
+    api_key_input = st.text_input(
         "Anthropic API Key",
+        value=st.session_state.api_key,
         type="password",
         help="Enter your Anthropic API key"
     )
+    
+    # Initialize chat instance when API key is provided
+    if api_key_input and api_key_input != st.session_state.api_key:
+        st.session_state.api_key = api_key_input
+        st.session_state.chat_instance = Chat(api_key=api_key_input, tools=True)
+        st.success("✓ Chat initialized!")
     
     # Display chat messages
     chat_container = st.container(height=400)
@@ -138,52 +152,33 @@ with col2:
     
     # Chat input
     if prompt := st.chat_input("Ask Claude anything..."):
-        # Add user message to session state
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        
-        # Display user message
-        with chat_container:
-            with st.chat_message("user"):
-                st.write(prompt)
-        
-        # Get Claude response
-        if api_key:
-            # ========================================
-            # BACKEND CALL MARKER #5
-            # TODO: Call backend function to get Claude response
-            # Example: 
-            # response = backend.get_claude_response(
-            #     api_key=api_key,
-            #     messages=st.session_state.messages
-            # )
-            # ========================================
+        if not st.session_state.chat_instance:
+            st.warning("Please enter your Anthropic API key first.")
+        else:
+            # Add user message to session state
+            st.session_state.messages.append({"role": "user", "content": prompt})
             
-            # Placeholder for backend response
-            # In production, replace this with actual backend call
+            # Display user message
+            with chat_container:
+                with st.chat_message("user"):
+                    st.write(prompt)
+            
+            # Get Claude response with streaming
             try:
                 with chat_container:
                     with st.chat_message("assistant"):
                         message_placeholder = st.empty()
+                        full_response = ""
                         
-                        # ========================================
-                        # BACKEND CALL MARKER #6
-                        # TODO: Handle streaming response from backend
-                        # Example:
-                        # full_response = ""
-                        # for chunk in backend.stream_claude_response(
-                        #     api_key=api_key,
-                        #     messages=st.session_state.messages
-                        # ):
-                        #     full_response += chunk
-                        #     message_placeholder.write(full_response + "▌")
-                        # message_placeholder.write(full_response)
-                        # ========================================
+                        # Stream response from chat.py
+                        for text_chunk in st.session_state.chat_instance.chat_stream(prompt):
+                            full_response += text_chunk
+                            message_placeholder.write(full_response + "▌")
                         
-                        # Temporary placeholder response
-                        full_response = "Backend connection needed. Please implement backend.get_claude_response()"
+                        # Remove cursor
                         message_placeholder.write(full_response)
                 
-                # Store assistant response
+                # Store assistant response in UI messages
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": full_response
@@ -191,28 +186,47 @@ with col2:
                 
             except Exception as e:
                 st.error(f"Error: {str(e)}")
-        else:
-            st.warning("Please enter your Anthropic API key to chat with Claude.")
     
     st.divider()
     
     # Clear chat button
     if st.button("Clear Chat", use_container_width=True):
         st.session_state.messages = []
-        
-        # ========================================
-        # BACKEND CALL MARKER #7
-        # TODO: Call backend to clear chat history if stored
-        # Example: backend.clear_chat_history()
-        # ========================================
-        
+        if st.session_state.chat_instance:
+            st.session_state.chat_instance.clear_chat()
         st.rerun()
 
 # Column 3: MP3 Player
 with col3:
     st.header("🎵 MP3 Player")
     
-    # Upload MP3 file
+    # Get audio files from S3
+    audio_files = object_storage.get_objects("podcasts")
+    
+    if audio_files:
+        # Create a selectbox to choose audio file
+        selected_audio = st.selectbox(
+            "Choose a podcast to play",
+            options=audio_files,
+            format_func=lambda x: x['name']
+        )
+        
+        if selected_audio:
+            st.success(f"Now playing: {selected_audio['name']}")
+            
+            # Display audio player using the S3 URL
+            st.audio(selected_audio['url'])
+            
+            # Audio file info
+            st.write(f"File size: {selected_audio['size'] / 1024:.2f} KB")
+            st.write(f"Uploaded: {selected_audio['uploaded_at']}")
+    else:
+        st.info("No podcasts available. Generate one using the chat!")
+    
+    st.divider()
+    
+    # Manual upload section
+    st.subheader("Upload Audio")
     audio_file = st.file_uploader(
         "Upload an MP3 file",
         type=["mp3", "wav", "ogg"],
@@ -220,66 +234,28 @@ with col3:
     )
     
     if audio_file is not None:
-        st.success(f"Loaded: {audio_file.name}")
-        
-        # ========================================
-        # BACKEND CALL MARKER #8
-        # TODO: Call backend to process/store audio file
-        # Example: backend.store_audio_file(audio_file)
-        # ========================================
-        
-        # Display audio player
+        # Display audio player for uploaded file
         st.audio(audio_file, format=f"audio/{audio_file.type.split('/')[-1]}")
-        
-        # Audio file info
         st.write(f"File size: {audio_file.size / 1024:.2f} KB")
-    else:
-        st.info("Upload an audio file to play it here")
+        
+        # Option to save to S3
+        if st.button("Save to Podcasts", use_container_width=True):
+            with st.spinner("Uploading..."):
+                success, result = object_storage.document_upload(
+                    audio_file,
+                    "podcasts",
+                    audio_file.name
+                )
+                if success:
+                    st.success("✓ Audio saved to podcasts!")
+                    st.rerun()
+                else:
+                    st.error(f"Upload failed: {result}")
     
-    st.divider()
-    
-    # Playlist section
-    st.subheader("Playlist")
-    
-    # ========================================
-    # BACKEND CALL MARKER #9
-    # TODO: Call backend to retrieve playlist
-    # Example: playlist = backend.get_playlist()
-    # Display playlist items here
-    # ========================================
-    
-    # Placeholder playlist container (same height as file list)
-    playlist_container = st.container(height=400)
-    with playlist_container:
-        st.write("No playlist items yet")
-    
-    # Sample controls
-    col_a, col_b, col_c = st.columns(3)
-    with col_a:
-        if st.button("⏮️ Previous"):
-            # ========================================
-            # BACKEND CALL MARKER #10
-            # TODO: Call backend to get previous track
-            # Example: backend.previous_track()
-            # ========================================
-            pass
-    with col_b:
-        if st.button("⏯️ Play/Pause"):
-            # ========================================
-            # BACKEND CALL MARKER #11
-            # TODO: Call backend to toggle play/pause
-            # Example: backend.toggle_playback()
-            # ========================================
-            pass
-    with col_c:
-        if st.button("⏭️ Next"):
-            # ========================================
-            # BACKEND CALL MARKER #12
-            # TODO: Call backend to get next track
-            # Example: backend.next_track()
-            # ========================================
-            pass
+    # Refresh button
+    if st.button("🔄 Refresh Podcasts", use_container_width=True):
+        st.rerun()
 
 # Footer
 st.markdown("---")
-st.caption("Simple Streamlit Dashboard with File Upload, Claude Chat, and MP3 Player")
+st.caption("AI Podcast Generator - Upload files, chat with Claude, and listen to generated podcasts")

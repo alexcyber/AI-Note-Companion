@@ -3,6 +3,7 @@ from pydub import AudioSegment
 import os
 import load_environment
 import json
+import urllib
 
 
 
@@ -95,8 +96,10 @@ class Podcast(Polly):
     def upload_to_s3(self, file_path, bucket_name, object_path, object_name):
         try:
             s3 = boto3.client('s3')
-            s3.upload_file(file_path, bucket_name, object_name)
-            print(f"Uploaded {file_path} to s3://{bucket_name}/{object_path}/{object_name}")
+            s3_object_name = f"{object_path}/{object_name}"
+            s3.upload_file(file_path, bucket_name, s3_object_name)
+            url = f'''https://{bucket_name}.s3.amazonaws.com/{urllib.parse.quote(s3_object_name, safe="~()*!.'")}'''
+            print(f"Uploaded {file_path} to {url}")
             return f"s3://{bucket_name}/{object_path}/{object_name}"
         except Exception as e:
             print(f"Upload failed: {e}")

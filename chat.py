@@ -60,6 +60,57 @@ class Chat:
         self.conversation_history = []
 
 
+    def chat_stream(self, message):
+        """Stream chat responses - returns a generator for streaming text"""
+        self.add_message("user", message)
+        
+        try:
+            with self.client.messages.stream(
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=5012,
+                tools=self.tools,
+                messages=self.conversation_history
+            ) as stream:
+                # Yield text chunks as they come
+                for text in stream.text_stream:
+                    yield text
+                
+                # After streaming, handle tool calls
+                final_message = stream.get_final_message()
+                self.add_message("assistant", final_message.content)
+                
+                # Process tools if needed
+                if final_message.stop_reason == "tool_use":
+                    for block in final_message.content:
+                        if block.type == "tool_use":
+                            yield f"\n\n🔧 Using tool: {block.name}...\n\n"
+                            
+                            result = self.process_tool_call(block.name, block.input)
+                            
+                            self.add_message("user", [{
+                                "type": "tool_result",
+                                "tool_use_id": block.id,
+                                "content": json.dumps(result)
+                            }])
+                            
+                            # Get follow-up response
+                            follow_up = self.client.messages.create(
+                                model="claude-sonnet-4-5-20250929",
+                                max_tokens=5012,
+                                tools=self.tools,
+                                messages=self.conversation_history
+                            )
+                            
+                            self.add_message("assistant", follow_up.content)
+                            
+                            for follow_block in follow_up.content:
+                                if hasattr(follow_block, "text"):
+                                    yield follow_block.text
+                                    
+        except Exception as e:
+            yield f"\n\nError: {e}"
+
+
     def chat(self, message):
         self.add_message("user", message)
         
@@ -125,7 +176,8 @@ class Chat:
     def process_tool_call(self, tool_name, tool_input):
         if tool_name == "generate_podcast_audio":  # Fixed tool name
             pod = Podcast(tool_input['podcast_name'])
-            pod.create_podcast(tool_input['dialogue_json'])
+            url = pod.create_podcast(tool_input['dialogue_json'])
+            return {"success": True, "url": url, "message": f"Podcast '{tool_input['podcast_name']}' created successfully!"}
             
         else:
             return {"error": f"Unknown tool '{tool_name}'"}
