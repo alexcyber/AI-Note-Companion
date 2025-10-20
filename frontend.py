@@ -4,7 +4,7 @@ import time
 from object_storage import ObjectStorage
 from chat import Chat
 import load_environment
-
+'''Frontend was fully claude'''
 env = load_environment.load_env()
 object_storage = ObjectStorage()
 
@@ -26,6 +26,59 @@ if "chat_instance" not in st.session_state:
 
 if "api_key" not in st.session_state:
     st.session_state.api_key = ""
+
+if "selected_files" not in st.session_state:
+    st.session_state.selected_files = []
+
+if "document_mode" not in st.session_state:
+    st.session_state.document_mode = True
+
+# Helper function to read document from S3
+def read_document_from_s3(bucket, key):
+    """Read document content from S3 using object_storage"""
+    try:
+        content = object_storage.read_file(bucket, key)
+        
+        # Handle different file types
+        if key.endswith('.txt'):
+            return content.decode('utf-8')
+        else:
+            return content.decode('utf-8', errors='ignore')
+    except Exception as e:
+        return f"Error reading file: {str(e)}"
+
+def toggle_file_selection(file_info):
+    """Toggle file in/out of selected files"""
+    # Check if file already selected (by name)
+    file_names = [f['name'] for f in st.session_state.selected_files]
+    
+    if file_info['name'] in file_names:
+        # Remove it
+        st.session_state.selected_files = [
+            f for f in st.session_state.selected_files 
+            if f['name'] != file_info['name']
+        ]
+    else:
+        # Add it
+        st.session_state.selected_files.append(file_info)
+
+def is_file_selected(file_info):
+    """Check if file is currently selected"""
+    file_names = [f['name'] for f in st.session_state.selected_files]
+    return file_info['name'] in file_names
+
+def build_message_with_docs(user_message):
+    """Build message with selected documents if document mode is on"""
+    if not st.session_state.document_mode or not st.session_state.selected_files:
+        return user_message
+    
+    # Build message with documents
+    docs_text = ""
+    for file_info in st.session_state.selected_files:
+        content = read_document_from_s3(file_info['bucket'], file_info['path'])
+        docs_text += f'\n\n<document name="{file_info["name"]}">\n{content}\n</document>'
+    
+    return f"{user_message}{docs_text}"
 
 # Main title
 st.title("Multi-Function Dashboard")
@@ -75,6 +128,10 @@ with col1:
     # Display all uploaded files from cloud storage
     st.subheader("Your Files")
     
+    # Show selected files count
+    if st.session_state.selected_files:
+        st.info(f"📌 {len(st.session_state.selected_files)} file(s) selected")
+    
     files = object_storage.get_objects("files")
     
     if files:
@@ -83,9 +140,11 @@ with col1:
         
         with file_container:
             for idx, file_info in enumerate(files):
+                is_selected = is_file_selected(file_info)
+                
                 # Create a card-like display for each file
                 with st.container():
-                    col_icon, col_info, col_actions = st.columns([1, 6, 2])
+                    col_icon, col_info, col_actions = st.columns([1, 5, 3])
                     
                     with col_icon:
                         # File type icon
@@ -104,18 +163,40 @@ with col1:
                             st.write("📎")
                     
                     with col_info:
-                        st.write(f"**{file_info['name']}**")
+                        # Show checkmark if selected
+                        display_name = f"**{file_info['name']}**"
+                        if is_selected:
+                            display_name = f"✅ {display_name}"
+                        st.write(display_name)
                         st.caption(f"{file_info['size'] / 1024:.1f} KB")
                     
                     with col_actions:
+                        col_select, col_delete = st.columns(2)
+                        
+                        # Select/deselect button
+                        with col_select:
+                            button_label = "➖" if is_selected else "➕"
+                            button_help = "Remove from selection" if is_selected else "Add to selection"
+                            if st.button(button_label, key=f"select_{idx}", help=button_help):
+                                toggle_file_selection(file_info)
+                                st.rerun()
+                        
                         # Delete button
-                        if st.button("🗑️", key=f"delete_{idx}"):
-                            # Construct relative path: "files/filename.ext"
-                            rel_path = f"files/{file_info['name']}"
-                            success = object_storage.document_delete(rel_path)
-                            if success:
-                                st.success("File deleted!")
-                            st.rerun()
+                        with col_delete:
+                            if st.button("🗑️", key=f"delete_{idx}", help="Delete file"):
+                                # Remove from selected files first if it's selected
+                                if is_selected:
+                                    st.session_state.selected_files = [
+                                        f for f in st.session_state.selected_files 
+                                        if f['name'] != file_info['name']
+                                    ]
+                                
+                                # Then delete from S3
+                                rel_path = f"files/{file_info['name']}"
+                                success = object_storage.document_delete(rel_path)
+                                if success:
+                                    st.success("File deleted!")
+                                st.rerun()
                     
                     st.divider()
     else:
@@ -143,8 +224,24 @@ with col2:
         st.session_state.chat_instance = Chat(api_key=api_key_input, tools=True)
         st.success("✓ Chat initialized!")
     
+    # Document mode toggle
+    col_toggle, col_info = st.columns([3, 7])
+    with col_toggle:
+        st.session_state.document_mode = st.toggle(
+            "Document Mode",
+            value=st.session_state.document_mode,
+            help="When enabled, selected files are included with every message"
+        )
+    with col_info:
+        if st.session_state.document_mode and st.session_state.selected_files:
+            st.caption(f"📄 Active: {', '.join([f['name'] for f in st.session_state.selected_files])}")
+        elif st.session_state.document_mode:
+            st.caption("📄 No files selected")
+        else:
+            st.caption("📄 Document mode off")
+    
     # Display chat messages
-    chat_container = st.container(height=400)
+    chat_container = st.container(height=330)
     with chat_container:
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
@@ -155,7 +252,10 @@ with col2:
         if not st.session_state.chat_instance:
             st.warning("Please enter your Anthropic API key first.")
         else:
-            # Add user message to session state
+            # Build message with documents if mode is on
+            full_prompt = build_message_with_docs(prompt)
+            
+            # Add user message to session state (show only the prompt, not docs)
             st.session_state.messages.append({"role": "user", "content": prompt})
             
             # Display user message
@@ -170,8 +270,8 @@ with col2:
                         message_placeholder = st.empty()
                         full_response = ""
                         
-                        # Stream response from chat.py
-                        for text_chunk in st.session_state.chat_instance.chat_stream(prompt):
+                        # Stream response from chat.py (with documents attached)
+                        for text_chunk in st.session_state.chat_instance.chat_stream(full_prompt):
                             full_response += text_chunk
                             message_placeholder.write(full_response + "▌")
                         
@@ -215,8 +315,6 @@ with col3:
             st.success(f"Now playing: {selected_audio['name']}")
             
             # Display audio player using the S3 URL
-            print(selected_audio['url'])
-            print(selected_audio)
             st.audio(selected_audio['url'])
             
             # Audio file info

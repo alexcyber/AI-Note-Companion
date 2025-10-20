@@ -12,11 +12,8 @@ class ObjectStorage:
 
     def document_upload(self, file_obj, rel_obj_path, filename):
         try:
-            # Construct the full S3 key (path + filename)
             s3_key = f"{self.s3_parent_path}/{rel_obj_path}/{filename}"
             
-            # Upload the file
-            # For Streamlit UploadedFile, we can directly use the file object
             self.s3.upload_fileobj(
                 file_obj,
                 self.bucket_name,
@@ -25,8 +22,6 @@ class ObjectStorage:
                     'ContentType': file_obj.type if hasattr(file_obj, 'type') else 'application/octet-stream'
                 }
             )
-            
-            # Generate the file URL
             file_url = f"https://{self.bucket_name}.s3.amazonaws.com/{s3_key}"
             
             print(f"Successfully uploaded {filename} to s3://{self.bucket_name}/{s3_key}")
@@ -44,7 +39,9 @@ class ObjectStorage:
         print(f"Status code: {status_code}")
 
 
-
+    def read_file(self, bucket, key):
+        response = self.s3.get_object(Bucket=bucket, Key=key)
+        return response['Body'].read()
 
     def get_objects(self, rel_obj_path: str = ""):
         try:
@@ -52,16 +49,15 @@ class ObjectStorage:
 
             paginate_kwargs = {"Bucket": self.bucket_name}
             if rel_obj_path:
-                # Ensure trailing slash if you're treating it like a "folder"
                 paginate_kwargs["Prefix"] = f"{self.s3_parent_path}/{rel_obj_path}"
             else:
                 paginate_kwargs["Prefix"] = f"{self.s3_parent_path}"
             print(f"Getting objects from {paginate_kwargs["Prefix"]}")
             paginator = self.s3.get_paginator('list_objects_v2')
-            for page in paginator.paginate(**paginate_kwargs):
+            for page in paginator.paginate(**paginate_kwargs): # Object suggestion was claude
                 for obj in page.get('Contents', []):
                     key = obj['Key']
-                    name = key.split('/')[-1] or key  # avoid empty name for "folder" keys
+                    name = key.split('/')[-1] or key 
                     mime, _ = guess_type(name)
                     files.append({
                         "id": obj.get('ETag', '').strip('"'),

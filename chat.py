@@ -6,9 +6,10 @@ class Chat:
     def __init__(self, api_key, tools=True):
         self.client = anthropic.Anthropic(api_key=api_key)
         self.conversation_history = []
+        self.loaded_documents = []  # Track loaded docs
 
         if tools:
-            self.tools =  [
+            self.tools =  [ # descriptions were created by Claude
                 {
                     "name": "generate_podcast_audio",
                     "description": """Generates audio files for a podcast dialogue using Amazon Polly text-to-speech.
@@ -18,7 +19,7 @@ class Chat:
                     - host (male voice)
                     - guest (female voice)
                     
-                    The tool will create an MP3 file that will be hosted in the cloude.  It returns an URL to the MP3 file""",
+                    The tool will create an MP3 file that will be hosted in the cloud. It returns a URL to the MP3 file""",
                     "input_schema": {
                         "type": "object",
                         "properties": {
@@ -55,13 +56,38 @@ class Chat:
                 }
             ]
 
+    
+    # def load_document(self, file_content, filename):
+    #     """Load a document into the conversation context"""
+    #     # Add document to tracking
+    #     self.loaded_documents.append(filename)
+        
+    #     # Create a system-style message explaining the document
+    #     doc_message = f"""I've loaded the document "{filename}" for you. Here's the content:
+    #     <document name="{filename}">
+    #     {file_content}
+    #     </document>
+
+    #     I've analyzed this document and I'm ready to discuss it or create a podcast about it. What would you like to do?"""
+        
+    #     return doc_message
+
+    
+    # def get_loaded_docs_summary(self):
+    #     """Return summary of loaded documents"""
+    #     if not self.loaded_documents:
+    #         return "No documents loaded yet."
+    #     return f"Loaded documents: {', '.join(self.loaded_documents)}"
+
         
     def clear_chat(self):
         self.conversation_history = []
+        self.loaded_documents = []
 
 
     def chat_stream(self, message):
         """Stream chat responses - returns a generator for streaming text"""
+        '''Vibe Code.  Used function manually created chat() as template'''
         self.add_message("user", message)
         
         try:
@@ -112,26 +138,25 @@ class Chat:
 
 
     def chat(self, message):
+        # Legacy
         self.add_message("user", message)
         
         try:
             response = self.client.messages.create(
-                model="claude-sonnet-4-5-20250929",  # Fixed model name
+                model="claude-sonnet-4-5-20250929",
                 max_tokens=5012,
                 tools=self.tools,
                 messages=self.conversation_history
             )
             
-            # Process response and tools in a loop
             while response.stop_reason == "tool_use":
-                # Add assistant's response to history
                 self.add_message("assistant", response.content)
                 
                 tool_results = []
                 for block in response.content:
                     if block.type == "text":
                         print(f"\nClaude: {block.text}")
-                    elif block.type == "tool_use":  # Changed 'if' to 'elif'
+                    elif block.type == "tool_use":
                         tool_name = block.name
                         tool_input = block.input
                         
@@ -145,11 +170,9 @@ class Chat:
                             "content": json.dumps(result)
                         })
                 
-                # Only add tool results if there are any
                 if tool_results:
                     self.add_message("user", tool_results)
                 
-                # Get next response
                 response = self.client.messages.create(
                     model="claude-sonnet-4-5-20250929",
                     max_tokens=5012,
@@ -157,9 +180,8 @@ class Chat:
                     messages=self.conversation_history
                 )
             
-            # Add final response and display text
             self.add_message("assistant", response.content)
-            for block in response.content:  # Fixed: iterate final response
+            for block in response.content:
                 if hasattr(block, "text"):
                     print(f"\nClaude: {block.text}\n")
             
@@ -174,7 +196,7 @@ class Chat:
 
 
     def process_tool_call(self, tool_name, tool_input):
-        if tool_name == "generate_podcast_audio":  # Fixed tool name
+        if tool_name == "generate_podcast_audio":
             pod = Podcast(tool_input['podcast_name'])
             url = pod.create_podcast(tool_input['dialogue_json'])
             return {"success": True, "url": url, "message": f"Podcast '{tool_input['podcast_name']}' created successfully!"}
@@ -185,6 +207,7 @@ class Chat:
 
 
 if __name__ == "__main__":
+    '''Vibe Code'''
     import os
     import load_environment
 
