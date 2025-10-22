@@ -19,7 +19,7 @@ class Polly:
                 Text=dialogue,
                 OutputFormat="mp3",
                 VoiceId=voice_id,
-                Engine='neural'  # Use neural engine for better quality
+                Engine='long-form'  
             )
             
             # Save audio stream to file
@@ -66,8 +66,8 @@ class Podcast(Polly):
             if dialogue_clip['speaker'] == "host":
                 voice_id = 'Ruth'
             elif dialogue_clip['speaker'] == "guest":
-                #voice_id = 'Patrick'
-                voice_id = 'Stephen'
+                voice_id = 'Patrick'
+                #voice_id = 'Stephen'
             else:
                 raise(Exception("An unknown speaker was present in the dialogue"))
             response_stream  = self.synthesize_speech(dialogue_clip['text'], voice_id)
